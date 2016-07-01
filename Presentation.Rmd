@@ -1,0 +1,263 @@
+---
+title: "Reserveistan"
+variant: markdown_github
+output:
+  revealjs::revealjs_presentation:
+    css: revealOpts.css
+    theme: solarized
+    transition: slide
+    reveal_options:
+      slideNumber: true
+      previewLinks: true
+---
+
+# The problem
+
+## The problem
+
+* Desire for individual claim analysis - don't throw away data
+* We're all pretty comfortable with GLMs now. Let's go crazy with lots of variables.
+* Mama weer all Bayezee now
+
+## Guszcza and Lommele
+
+Published way back in 2006.
+
+* 5,000 claims per year
+* Value at first evaluation period is the same, lognormal
+* Subsequent amounts are multiplicative chain ladder
+    * Current period amount equals prior period times link ratio
+    * Link ratios are random
+    * Expected value of link ratio depends 
+* Fit the model using a Poisson GLM
+* Aggregation of claims data misses the specific structure of the data
+
+## 
+
+```{r echo=FALSE}
+load("GandL.rda")
+pltBadCredit
+```
+
+##
+
+Table with GLM and MCL
+
+## What if we had split our claims data?
+
+## What if we had split our claims data?
+
+Show results here
+
+## What if we had split our claims data?
+
+* We would have been fine.
+
+* Not surprising. The Poisson likelihood function aggregates naturally. 
+
+$$L=\prod_{i=1}^{N}\dfrac{\lambda^{x_i}e^{-\lambda}}{x_i!}$$
+
+* The subscripts don't really matter. We can add individual claims into accident years and then fit a model, or just apply the model 
+
+## However
+
+Note that when we look at individual claims, we may construct a training and test data set. That's not nearly as effective when we aggregate into accident years before fitting.
+
+Also, this won't necessarily work for other distributional forms.
+
+Reserving with individual claims still has merit.
+
+## So we're done?
+
+So we can split our data into subsets and get results  that are just about as good as when fitting individual data without quite so much fuss. What if we're worried about credibility of the resulting segments? Well, we can just use hierarchical models, right?
+
+# Hierarchical methods
+
+## Hierarchical models
+
+* Also referred to as fixed/random effects models
+* Common in social science research to control for "house effects" (classrooms in schools, schools in districts)
+* Presume that a model parameter (like a link ratio) is the result of a random draw from another distribution which has its own hyperparameters
+* Example: link ratios by state ought to be fairly similar. We may consider them to be random draws from a nationwide distribution
+* Very similar to the actuarial concept of credibility
+
+## Fit a hierarchical model 
+
+Show what this would look like.
+
+## Hierarchical Models
+
+* Note that this is a bit different than simply splitting the data. This is a feature, not a bug!
+* In our example, we know that credit score affects loss development _by construction_. In the real world, that assumption is harder to make.
+* Good news: we're using all of our data
+* Bad(ish) news: estimates are based only on the data we have to hand. No exogeneous information 
+
+# Bayesian estimation
+
+## Bayseian estimation
+
+Bayesian estimation allows us to replace data with prior judgment. This is manna to know-it-all underwriters and managers who think they don't need data and fancy pants models to evaluate a risk.
+
+## Comparison
+
+|                    | Hierarchical models         | Bayesian                                  |
+| ------------------ | --------------------------- | ----------------------------------------- |
+| Fit method         | Maximum likelihood          | Closed form if you're lucky, numerical methods (like MCMC) if you're not |
+| Complementary data | Part of the fitting process | Use a prior distribution                  |
+| Objectivity        | Objective                   | Subjective when the prior swamps the data |
+
+## So lets all be Bayesian!
+
+But Bayesian estimation is hard!! 
+
+There are integrals! 
+
+Complicated integrals!
+
+What's shrinkage?
+
+## Enter STAN
+
+## STAN
+
+* Named for Stanislav Ulam, father of Monte Carlo methods (and, um, made lots of improvements to nuclear weapons)
+* Project w/Andrew Gelman and many others
+* Predecessors were BUGS, Jags
+* Available for a number of platforms and languages, including R and Python
+* Uses MCMC as the estimation engine
+* Very simple syntax to describe models
+
+## Simple STAN example
+
+Imagine I've flipped a coin ten times and came up with two heads.
+
+* What is a distribution around p?
+* What is my prediction for the next five flips?
+* How does my answer change if I'm _pretty sure_ that the coin is fair?
+
+## No idea if the coin is fair
+
+```{r echo=FALSE}
+load("bernouli.rda")
+pltTheta1
+```
+
+## _Pretty sure_ the coin is fair
+
+```{r echo=FALSE}
+pltTheta2
+```
+
+## Both assumptions
+
+```{r echo=FALSE}
+pltCompareTheta
+```
+
+## Future predictions
+
+```{r echo=FALSE}
+pltComparePred
+```
+
+Notice that the mean of the generated thetas is always between the sample mean of 0.2 and our prior belief of 0.5. In the first case, it's `r format(mean(theta1), digit = 2)`. In the second it's `r format(mean(theta2), digit = 2)`. 
+
+##
+
+Contrived example? Consider ten years of a high excess treaty, or one year of ten policyholders. 
+
+## How do we do this with STAN?
+
+## The model
+
+```
+data {
+  int<lower=0> sampleN;
+  int<lower=0, upper=1> y[sampleN];
+  int<lower=0> predN;
+  int<lower=0> betaA;
+  int<lower=0> betaB;
+}
+
+parameters {
+  real<lower=0,upper=1> theta;
+}
+
+model {
+  theta ~ beta(betaA, betaB);
+  y ~ bernoulli(theta);
+}
+
+generated quantities{
+  real y_pred;
+  y_pred <- binomial_rng(predN, theta);
+}
+```
+
+
+## data
+
+```
+data {
+  int<lower=0> N;
+  int<lower=0,upper=1> y[N];
+}
+```
+
+* N is given to the model
+* y is a vector with N elements
+
+## parameters
+
+```
+parameters {
+  real<lower=0,upper=1> theta;
+}
+```
+
+In this simple example, there's just the one parameter. $$\theta$$ is the beta variable that serves as our range around the binomial coefficient, p.
+
+## model
+
+```
+model {
+  theta ~ beta(betaA, betaB);
+  y ~ bernoulli(theta);
+}
+```
+
+## generated quantities
+
+```
+generated quantities{
+  real y_pred;
+  y_pred <- binomial_rng(predN, theta);
+}
+```
+
+The sample size doesn't need to be the same as the predicted results. I could use five years of data to predict the next two, or whatever.
+
+## Output
+
+What the hell did I want to put here?
+
+```{r}
+
+```
+
+
+# Bayesian Estimation of Individual Claims
+
+## The STAN model
+
+```
+```
+
+# Summary
+
+## Summary
+
+* Individual claims analysis presumes a model. In that respect, not so much different from aggregate techniques.
+* If categories are the modelling problem, simply divide and conquer.
+* Hierarchical models can help as segments get small, but they require complementary data.
+* Bayesian techniques allow us to bring judgment to bear on small samples.
