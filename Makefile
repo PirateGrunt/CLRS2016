@@ -13,7 +13,7 @@ GandL.rda:GandL_Simulate.rda
 	Rscript -e "source('GandLfit.R')"
 
 GandL_Simulate.rda:GandL_Simulate.R
-	Rscript -r "source('GandL_Simulate.R')"
+	Rscript "GandL_Simulate.R"
 
 clean:
 	rm Presentation.html
