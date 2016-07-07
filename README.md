@@ -1,4 +1,6 @@
-# Individual Claims Reserving with Stan
+---
+title: Individual Claims Reserving with Stan
+---
 
 Code and slides for a presentation to be given at the [Casualty Loss Reserve Seminar](http://www.casact.org/clrs/) in Chicago, 2016. This presentation develops ideas first proposed by James Guszcza and Jan Lommele in their paper [Loss Reserving Using Claim-Level Data](https://www.casact.org/pubs/forum/06fforum/115.pdf).
 
