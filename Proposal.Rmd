@@ -1,6 +1,0 @@
----
-title: "Individual claim reserving with Stan"
-output: word_document
----
-
-Guszcsa and Lommele proposed an individual claim reserving technique. Although they don't state this, when the data are split, their assumptions will devolve to an aggregate chain ladder model. This may be feasible if the volume of segmented data which results is sufficiently large. However, as the data get more refined, the variability around estimated model parameters increases. This session will explore the use of Bayesian techniques and the Stan modelling language to use all of the data to enhance the estimation procedure for each segment.
