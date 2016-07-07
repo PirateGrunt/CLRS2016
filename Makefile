@@ -1,7 +1,7 @@
 all: Presentation.html
 
 Presentation.html:Presentation.Rmd revealOpts.css
-	Rscript -e "rmarkdown::render('$<')"
+	Rscript -e "rmarkdown::render('$<', output_format = 'all')"
   
 Presentation.Rmd:GandL_Fit.rda HierarchicalFit.rda bernoulli.rda bibliography.bib Claims.rda
 	touch Presentation.Rmd
@@ -23,3 +23,8 @@ Claims.rda:Claims.R stan/Claims.stan
 
 clean:
 	rm Presentation.html
+	rm Claims.rda
+	rm HierarchicalFit.rda
+	rm GandL_Simulate.rda
+	rm GandL_Fit.rda
+	rm bernoulli.rda
