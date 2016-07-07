@@ -3,6 +3,7 @@ title: "Individual Claims Reserving with Stan"
 variant: markdown_github
 bibliography: bibliography.bib
 output:
+  tufte::tufte_handout: default
   revealjs::revealjs_presentation:
     css: revealOpts.css
     theme: solarized
