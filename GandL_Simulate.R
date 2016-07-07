@@ -20,6 +20,7 @@ if (!require("imagine")){
 LinkSD <- function(x){
   x <- (x - 1) * .1
   x
+
 }
 
 PctOfTotalToGrowth <- function(x){
@@ -85,8 +86,11 @@ dfDupPolicyID <- dfPolicy %>%
 
 if (nrow(dfDupPolicyID) > 0) stop("Duplicate PolicyIDs")
 
+#=============================
+# Simulate claims
+#=============================
 badLink  <- c(2.0, 1.2125, 1.1625, 1.10, 1.0625, 1.0375, 1.025, 1.01875, 1.010)
-goodLink <- c(1.8, 1.1700, 1.1300, 1.08, 1.0500, 1.0300, 1.020, 1.01500, 1.008)
+goodLink <- c(1.6, 1.1700, 1.1300, 1.08, 1.0500, 1.0300, 1.020, 1.01500, 1.008)
 
 if (length(badLink) != length(goodLink)){
   warning("Length of link ratio vectors is not identical.")
@@ -94,21 +98,19 @@ if (length(badLink) != length(goodLink)){
 
 lags <- seq(1, length(badLink) + 1)
 
-lstBadCreditLinks <- vector("list", length(badLink))
-lstGoodCreditLinks <- vector("list", length(goodLink))
+lstBadCreditLinks <- mapply(NormalHelper
+                            , mean = badLink
+                            , sd = LinkSD(badLink)
+                            , lowerBound = 0.3
+                            , upperBound = 4
+                            , SIMPLIFY = FALSE)
 
-for (i in seq_along(lstBadCreditLinks)){
-  lstBadCreditLinks[[i]] <- NormalHelper(badLink[i]
-                                         , LinkSD(badLink[i])
-                                         , lowerBound = .3
-                                         , upperBound = 4)
-  
-  lstGoodCreditLinks[[i]] <- NormalHelper(goodLink[i]
-                                          , LinkSD(goodLink[i])
-                                          , lowerBound = .3
-                                          , upperBound = 4)
-}
-
+lstGoodCreditLinks <- mapply(NormalHelper
+                            , mean = goodLink
+                            , sd = LinkSD(goodLink)
+                            , lowerBound = 0.3
+                            , upperBound = 4
+                            , SIMPLIFY = FALSE)
 dfBadClaims <- dfBadCredit %>% 
   ClaimsByLag(Frequency = FixedVal(1)
               , Severity = LognormalHelper(8, 1.3)
@@ -146,7 +148,8 @@ dfClaims <- dplyr::bind_rows(dfBadClaims, dfGoodClaims) %>%
   dplyr::inner_join(dfPolicy, by = c("PolicyID", "PolicyEffectiveDate")) %>% 
   mutate(PolicyYear = lubridate::year(PolicyEffectiveDate)
          , EvalYear = PolicyYear + Lag - 1
-         , ClaimInt = as.integer(round(ClaimValue))) %>% 
+         , ClaimInt = as.integer(round(ClaimValue))
+         , Upper = EvalYear <= max(policyYears)) %>% 
   arrange(PolicyID, ClaimID, Lag) %>% 
   group_by(PolicyID, ClaimID) %>% 
   mutate(Prior = lag(ClaimValue)
@@ -162,30 +165,92 @@ if (expectedClaims != foundClaims) {
   warning(msg)
 }
 
+dfUpper <- dfClaims %>% filter(Upper)
+dfLower <- dfClaims %>% filter(!Upper)
+dfLag2 <- dfUpper %>% 
+  filter(Lag == 2)
 
-upperTriangle <- with(dfClaims, EvalYear <= max(policyYears))
-lowerTriangle <- !upperTriangle
+AggPY <- function(df){
+  df <- df %>% 
+    summarise(ClaimValue = sum(ClaimValue)
+              , ClaimInt = sum(ClaimInt)
+              , Prior = sum(Prior)
+              , PriorInt = sum(PriorInt)) %>% 
+    ungroup()
+  
+  df
+}
 
-dfUpper <- dfClaims[upperTriangle, ]
-dfLower <- dfClaims[lowerTriangle, ]
+dfByPY <- dfClaims %>% 
+  group_by(PolicyYear, Lag) %>% 
+  AggPY()
+
+dfUpperPY <- dfUpper %>% 
+  group_by(PolicyYear, Lag) %>% 
+  AggPY()
+
+dfLowerPY <- dfLower %>% 
+  group_by(PolicyYear, Lag) %>% 
+  AggPY()
+
+dfByPY_Split <- dfClaims %>% 
+  group_by(PolicyYear, Lag, Credit) %>% 
+  AggPY()
+
+dfUpperPY_Split <- dfUpper %>% 
+  group_by(PolicyYear, Lag, Credit) %>% 
+  AggPY()
+
+dfLowerPY_Split <- dfLower %>% 
+  group_by(PolicyYear, Lag, Credit) %>% 
+  AggPY()
 
 #=======================================
-# Explore the results
+# Explore the data
 #=======================================
 pltBadCredit <- ggplot(data = dfClaims, aes(x=as.factor(PolicyYear), fill=Credit)) + geom_bar()
 pltBadCredit <- pltBadCredit + labs(x = "Policy Year", y = "Claims", title = "Portion of bad credit claims by Policy Year")
 pltBadCredit <- pltBadCredit + scale_y_continuous(labels = comma)
 pltBadCredit
 
+pltAllClaims <- ggplot(data = subset(dfUpper, Lag != 1), aes(PriorInt, ClaimInt)) + geom_point() + facet_wrap(~ Lag)
+pltAllClaims <- pltAllClaims + scale_x_log10(labels = scales::comma) + scale_y_log10(labels = scales::comma)
+pltAllClaims
+
+pltLag2 <- ggplot(data = dfLag2, aes(Prior, ClaimValue)) + geom_point()
+pltLag2 <- pltLag2 + scale_x_log10(labels = scales::comma) + scale_y_log10(labels = scales::comma)
+pltLag2 <- pltLag2 + labs(x = "Prior Cumulative", y = "Current Cumulative", title = "Individual Claims Link Ratios")
+pltLag2
+
+pltLag2Color <- ggplot(data = dfLag2, aes(Prior, ClaimValue, color = Credit)) + geom_point(alpha = 0.3)
+pltLag2Color <- pltLag2Color + scale_x_log10(labels = scales::comma) + scale_y_log10(labels = scales::comma)
+pltLag2Color <- pltLag2Color + labs(x = "Prior Cumulative", y = "Current Cumulative", title = "Individual Claims Link Ratios")
+pltLag2Color
+
+pltPY <- ggplot(filter(dfUpperPY, Lag == 2), aes(Prior, ClaimValue)) + geom_point()
+pltPY <- pltPY + scale_x_continuous(labels = scales::comma) + scale_y_continuous(labels = scales::comma)
+pltPY
+
+pltPY_Split <- ggplot(filter(dfUpperPY_Split, Lag == 2), aes(Prior, ClaimValue, color = Credit)) + geom_point()
+pltPY_Split <- pltPY_Split + scale_x_continuous(labels = scales::comma) + scale_y_continuous(labels = scales::comma)
+pltPY_Split
+
 save(file = "GandL_Simulate.rda"
-     , dfClaims
-     , dfPolicy
-     , dfUpper
-     , dfLower
-     , upperTriangle
-     , lowerTriangle
      , policyYears
      , goodLink
      , badLink
      , lags
-     , pltBadCredit)
+     , dfClaims
+     , dfPolicy
+     , dfUpper
+     , dfLower
+     , dfLag2
+     , dfByPY
+     , dfByPY_Split
+     , dfUpperPY
+     , dfLowerPY
+     , dfUpperPY_Split
+     , dfLowerPY_Split
+     , pltBadCredit
+     , pltLag2
+     , pltLag2Color)
