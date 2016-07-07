@@ -27,9 +27,9 @@ for (i in seq_along(badLink)){
   sampleData <- with(dfClaims, which(Lag == lags[i + 1] 
                                      & PolicyYear %in% policyYears[1:(10-i)]))
   
-  fits[[i]] <- glm(ClaimInt ~ Credit
+  fits[[i]] <- glm(ClaimValue ~ Credit
                    , family = poisson(link="log")
-                   , offset = log(PriorInt)
+                   , offset = log(Prior)
                    , data = dfClaims[sampleData, ])
   
   predictionData <- with(dfClaims, which(Lag == lags[i+1] 
@@ -48,11 +48,12 @@ dfClaims$AbsoluteError <- with(dfClaims, ClaimInt - Prediction)
 dfClaims$RelativeError <- with(dfClaims, AbsoluteError / ClaimInt)
 
 dfTriangle <- dfClaims %>% 
+  filter(!is.na(Prediction)) %>% 
   group_by(PolicyYear, Lag) %>% 
   summarise(ActualLoss = sum(ClaimInt)
-            , Predicted = sum(Prediction)
-            , AbsoluteError = sum(AbsoluteError)
-            , RelativeError = sum(AbsoluteError) / sum(ClaimInt))
+            , PredictedGLM = sum(Prediction)
+            , AbsoluteErrorGLM = sum(AbsoluteError)
+            , RelativeErrorGLM = sum(AbsoluteError) / sum(ClaimInt))
 
 GetTriangle <- function(df, whichCol){
   df <- select_(df, "PolicyYear", "Lag", whichCol) %>% 
@@ -60,10 +61,18 @@ GetTriangle <- function(df, whichCol){
   df
 }
 
+dfGLMSummary <- dfTriangle %>% 
+  group_by(PolicyYear) %>% 
+  summarise(ActualLoss = sum(ActualLoss)
+            , PredictedGLM = sum(PredictedGLM)
+            , AbsoluteErrorGLM = sum(AbsoluteErrorGLM))
+
 #=======================================
 # Chain ladder prediction
 #=======================================
-triMack <- mutate(dfTriangle, ActualLoss = ifelse(is.na(Predicted), ActualLoss, NA)) %>% 
+triMack <- dfUpper %>%
+  group_by(PolicyYear, Lag) %>% 
+  summarise(ActualLoss = sum(ClaimValue)) %>% 
   GetTriangle("ActualLoss")
 row.names(triMack) <- triMack$PolicyYear
 triMack <- MackChainLadder(triMack[, -1])
@@ -74,35 +83,55 @@ clPredict <- as.data.frame(triMack$FullTriangle) %>%
   rename(Predicted = value, Lag = dev) %>% 
   select(-origin)
 
-dfCL <- select(dfTriangle, -Predicted, -RelativeError) %>% 
-  merge(clPredict) %>% 
-  mutate(Predicted = ifelse(is.na(AbsoluteError), NA, Predicted)
-         , AbsoluteError = ActualLoss - Predicted
-         , RelativeError = AbsoluteError / ActualLoss)
+dfCL <- clPredict %>% 
+  merge(dfTriangle) %>% 
+  rename(PredictedCL = Predicted) %>% 
+  mutate(AbsoluteErrorCL = ActualLoss - PredictedCL
+         , RelativeErrorCL = AbsoluteErrorCL / ActualLoss)
+
+dfCompareCL <- dfCL %>% 
+  select(PolicyYear, Lag, AbsoluteErrorGLM, AbsoluteErrorCL) %>% 
+  tidyr::gather(Method, AbsoluteError, -PolicyYear, -Lag)
+
+dfCompareCL_Lag <- dfCompareCL %>% 
+  group_by(Lag, Method) %>% 
+  summarise(AbsoluteError = sum(AbsoluteError))
+
+pltCompareCL_Lag <- ggplot(dfCompareCL_Lag, aes(as.factor(Lag), AbsoluteError, fill = Method)) + geom_bar(position = "dodge", stat = "identity")
+pltCompareCL_Lag <- pltCompareCL_Lag + scale_y_continuous(labels = scales::comma)
+pltCompareCL_Lag <- pltCompareCL_Lag + xlab("Lag")
+pltCompareCL_Lag
+
+dfCompareCL_PY <- dfCompareCL %>% 
+  group_by(PolicyYear, Method) %>% 
+  summarise(AbsoluteError = sum(AbsoluteError))
+
+pltCompareCL_PY <- ggplot(dfCompareCL_PY, aes(as.factor(PolicyYear), AbsoluteError, fill = Method)) + geom_bar(position = "dodge", stat = "identity")
+pltCompareCL_PY <- pltCompareCL_PY + scale_y_continuous(labels = scales::comma)
+pltCompareCL_PY <- pltCompareCL_PY + xlab("Policy Year")
+pltCompareCL_PY
 
 #=======================================
 # Chain ladder prediction - bifurcated
 #=======================================
-triGood <- filter(dfClaims, Credit == "Good", is.na(Prediction)) %>% 
+triGood <- filter(dfUpper, Credit == "Good") %>% 
   group_by(PolicyYear, Lag) %>% 
-  summarise(ActualLoss = sum(ClaimInt)) %>% 
+  summarise(ActualLoss = sum(ClaimValue)) %>% 
   GetTriangle("ActualLoss")
-
 row.names(triGood) <- triGood$PolicyYear
-triGood <- MackChainLadder(triGood[, -1])
+triGood <- MackChainLadder(triGood[, -1], alpha = 2)
 
 clGood <- as.data.frame(triGood$FullTriangle) %>% 
   mutate(PolicyYear = policyYears[origin]) %>% 
   rename(Predicted = value, Lag = dev) %>% 
   select(-origin)
 
-triBad <- filter(dfClaims, Credit == "Bad", is.na(Prediction)) %>% 
+triBad <- filter(dfUpper, Credit == "Bad") %>% 
   group_by(PolicyYear, Lag) %>% 
-  summarise(ActualLoss = sum(ClaimInt)) %>% 
+  summarise(ActualLoss = sum(ClaimValue)) %>% 
   GetTriangle("ActualLoss")
-
 row.names(triBad) <- triBad$PolicyYear
-triBad <- MackChainLadder(triBad[, -1])
+triBad <- MackChainLadder(triBad[, -1], alpha = 2)
 
 clBad <- as.data.frame(triBad$FullTriangle) %>% 
   mutate(PolicyYear = policyYears[origin]) %>% 
@@ -113,27 +142,37 @@ cl_Bif <- rbind(clGood, clBad) %>%
   group_by(Lag, PolicyYear) %>% 
   summarise(Predicted = sum(Predicted))
 
-dfCL_Bif <- select(dfTriangle, -Predicted, -RelativeError) %>% 
-  merge(cl_Bif) %>% 
-  mutate(Predicted = ifelse(is.na(AbsoluteError), NA, Predicted)
-         , AbsoluteError = ActualLoss - Predicted
-         , RelativeError = AbsoluteError / ActualLoss)
+dfCL_Bif <- cl_Bif %>% 
+  merge(dfTriangle) %>% 
+  rename(PredictedCL = Predicted) %>% 
+  mutate(AbsoluteErrorCL = ActualLoss - PredictedCL
+         , RelativeErrorCL = AbsoluteErrorCL / ActualLoss)
 
-View(GetTriangle(dfTriangle, "Predicted"))
-View(GetTriangle(dfTriangle, "AbsoluteError"))     
-View(GetTriangle(dfTriangle, "RelativeError"))
-View(GetTriangle(dfTriangle, "ActualLoss"))
+dfCompareCL_Bif <- dfCL_Bif %>% 
+  select(PolicyYear, Lag, AbsoluteErrorGLM, AbsoluteErrorCL) %>% 
+  tidyr::gather(Method, AbsoluteError, -PolicyYear, -Lag)
 
-View(GetTriangle(dfCL, "AbsoluteError"))
-View(GetTriangle(dfCL, "RelativeError"))
-View(GetTriangle(dfCL_Bif, "RelativeError"))
-View(GetTriangle(dfCL_Bif, "AbsoluteError"))
+dfCompareBifLag <- dfCompareCL_Bif %>% 
+  group_by(Lag, Method) %>%
+  summarise(AbsoluteError = sum(AbsoluteError))
 
-sum(dfTriangle$AbsoluteError, na.rm=TRUE)
-sum(dfCL$AbsoluteError, na.rm=TRUE)
+pltCompareCL_Bif_Lag <- ggplot(dfCompareBifLag, aes(as.factor(Lag), AbsoluteError, fill = Method)) + geom_bar(position = "dodge", stat = "identity")
+pltCompareCL_Bif_Lag <- pltCompareCL_Bif_Lag + scale_y_continuous(labels = scales::comma)
+pltCompareCL_Bif_Lag <- pltCompareCL_Bif_Lag + xlab("Lag")
+pltCompareCL_Bif_Lag
 
-# curve(LinkSD, from = .9, to = 3, main = "Standard deviation by link ratio"
-#       , xlab = "Link ratio", ylab = "Standard deviation")
+dfCompareBifPY <- dfCompareCL_Bif %>% 
+  group_by(PolicyYear, Method) %>%
+  summarise(AbsoluteError = sum(AbsoluteError))
+
+pltCompareCL_Bif_PY <- ggplot(dfCompareBifPY, aes(as.factor(PolicyYear), AbsoluteError, fill = Method)) + geom_bar(position = "dodge", stat = "identity")
+pltCompareCL_Bif_PY <- pltCompareCL_Bif_PY + scale_y_continuous(labels = scales::comma)
+pltCompareCL_Bif_PY <- pltCompareCL_Bif_PY + xlab("Policy Year")
+pltCompareCL_Bif_PY
 
 save(file = "GandL_Fit.rda"
-     , pltBadCredit)
+     , pltBadCredit
+     , pltCompareCL_PY
+     , pltCompareCL_Lag
+     , pltCompareCL_Bif_PY
+     , pltCompareCL_Bif_Lag)
