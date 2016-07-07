@@ -5,12 +5,11 @@ library(dplyr)
 library(scales)
 
 #===============================================
-# Install package
+# Check for imagine
 #===============================================
-packageVersion("imagine")
-
 if (!require("imagine")){
   devtools::install_github("PirateGrunt/imagine")
+  packageVersion("imagine")
   library("imagine")
 }
 
