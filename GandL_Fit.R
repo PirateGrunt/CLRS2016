@@ -119,7 +119,7 @@ triGood <- filter(dfUpper, Credit == "Good") %>%
   summarise(ActualLoss = sum(ClaimValue)) %>% 
   GetTriangle("ActualLoss")
 row.names(triGood) <- triGood$PolicyYear
-triGood <- MackChainLadder(triGood[, -1], alpha = 2)
+triGood <- MackChainLadder(triGood[, -1], alpha = 1)
 
 clGood <- as.data.frame(triGood$FullTriangle) %>% 
   mutate(PolicyYear = policyYears[origin]) %>% 
@@ -131,7 +131,7 @@ triBad <- filter(dfUpper, Credit == "Bad") %>%
   summarise(ActualLoss = sum(ClaimValue)) %>% 
   GetTriangle("ActualLoss")
 row.names(triBad) <- triBad$PolicyYear
-triBad <- MackChainLadder(triBad[, -1], alpha = 2)
+triBad <- MackChainLadder(triBad[, -1], alpha = 1)
 
 clBad <- as.data.frame(triBad$FullTriangle) %>% 
   mutate(PolicyYear = policyYears[origin]) %>% 
