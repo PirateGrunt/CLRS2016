@@ -1,6 +1,6 @@
 data {
   int<lower=0> sampleN;
-  int<lower=0, upper=1> y[sampleN];
+  int<lower=0, upper=1> heads[sampleN];
   int<lower=0> predN;
   int<lower=0> betaA;
   int<lower=0> betaB;
@@ -12,10 +12,10 @@ parameters {
 
 model {
   theta ~ beta(betaA, betaB);
-  y ~ bernoulli(theta);
+  heads ~ bernoulli(theta);
 }
 
 generated quantities{
-  real y_pred;
-  y_pred <- binomial_rng(predN, theta);
+  real heads_pred;
+  heads_pred <- binomial_rng(predN, theta);
 }
