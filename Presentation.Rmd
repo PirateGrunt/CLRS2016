@@ -55,7 +55,7 @@ Published way back in 2006, Guszcza and Lommele [-@GandL] presented a model to d
 * Subsequent amounts are multiplicative chain ladder
     * Current period amount equals prior period times link ratio
     * Link ratios are random
-    * Expected value of link ratio depends 
+    * Expected value and variance of link ratio depends on credit quality
 * Fit the model using a Poisson GLM
 * Aggregation of claims data misses the specific structure of the data
 
